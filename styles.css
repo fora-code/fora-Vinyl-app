@@ -148,6 +148,20 @@ code.copyable {
 .pill:empty { display: none; }
 .btn-pill { cursor: pointer; transition: background .2s; }
 .btn-pill:hover { background: rgba(255,255,255,0.09); color: var(--fg); }
+.icon-btn {
+  display: grid; place-items: center; cursor: pointer;
+  width: 30px; height: 30px; border-radius: 50%;
+  border: 1px solid var(--line); background: rgba(255,255,255,0.04); color: var(--fg-dim);
+  transition: background .2s, color .2s;
+}
+.icon-btn:hover { background: rgba(255,255,255,0.09); color: var(--fg); }
+
+/* Full screen: the chrome fades out when the mouse goes idle, leaving the turntable */
+#player.is-fullscreen { padding: 22px 36px 30px; }
+#player.is-fullscreen .topbar, #player.is-fullscreen .now { transition: opacity .8s var(--ease); }
+#player.is-fullscreen.idle .topbar { opacity: 0; }
+#player.is-fullscreen.idle .now { opacity: 0.25; }
+#player.is-fullscreen.idle { cursor: none; }
 
 .stage {
   display: flex; align-items: center; justify-content: center;

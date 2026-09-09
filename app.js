@@ -641,6 +641,37 @@
       state.presetIndex = (state.presetIndex + 1) % PRESETS.length; store.set(LS.preset, state.presetIndex);
       renderVinyl(PRESETS[state.presetIndex], palette, state.trackId || "none"); renderMeta();
     });
+    // Full screen: button, F key, and an idle timer that hides the chrome
+    const playerEl = $("player");
+    const fsSupported = !!(document.documentElement.requestFullscreen || document.documentElement.webkitRequestFullscreen);
+    if (!fsSupported) $("fullscreen").classList.add("hidden");
+    const isFs = () => !!(document.fullscreenElement || document.webkitFullscreenElement);
+    const toggleFullscreen = async () => {
+      try {
+        if (isFs()) await (document.exitFullscreen ? document.exitFullscreen() : document.webkitExitFullscreen());
+        else { const el = document.documentElement; await (el.requestFullscreen ? el.requestFullscreen({ navigationUI: "hide" }) : el.webkitRequestFullscreen()); }
+      } catch (e) { toast("Full screen isn't available here: " + e.message); }
+    };
+    let idleTimer = null;
+    const wake = () => {
+      playerEl.classList.remove("idle");
+      clearTimeout(idleTimer);
+      if (isFs()) idleTimer = setTimeout(() => playerEl.classList.add("idle"), 3200);
+    };
+    const onFsChange = () => {
+      const on = isFs();
+      playerEl.classList.toggle("is-fullscreen", on);
+      $("icon-expand").classList.toggle("hidden", on);
+      $("icon-compress").classList.toggle("hidden", !on);
+      $("fullscreen").setAttribute("title", on ? "Exit full screen (F)" : "Full screen (F)");
+      wake();
+    };
+    $("fullscreen").addEventListener("click", toggleFullscreen);
+    document.addEventListener("fullscreenchange", onFsChange);
+    document.addEventListener("webkitfullscreenchange", onFsChange);
+    for (const ev of ["mousemove", "mousedown", "touchstart", "keydown"]) document.addEventListener(ev, wake, { passive: true });
+    window.__toggleFullscreen = toggleFullscreen;
+
     $("bar").addEventListener("click", (e) => { const r = e.currentTarget.getBoundingClientRect(); seekTo((e.clientX - r.left) / r.width); });
     document.addEventListener("keydown", (e) => {
       if (e.target.tagName === "INPUT") return;
@@ -648,6 +679,7 @@
       else if (e.code === "ArrowRight" && e.shiftKey) control("next");
       else if (e.code === "ArrowLeft" && e.shiftKey) control("prev");
       else if (e.key.toLowerCase() === "v") $("preset-btn").click();
+      else if (e.key.toLowerCase() === "f" && !e.metaKey && !e.ctrlKey) window.__toggleFullscreen();
     });
     document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
   }

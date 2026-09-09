@@ -2,7 +2,7 @@
 
 A virtual record player for your Spotify now-playing, in the spirit of MD Vinyl. Open it in Chrome, connect Spotify, and the current track shows up as album art plus a record themed from the artwork's colors, spinning on a turntable with a tonearm that tracks the song's progress.
 
-**Live:** https://fora-code.github.io/fora-vinyl-app/
+**Live:** https://fora-code.github.io/fora-Vinyl-app/
 
 ## What it does
 
@@ -12,6 +12,7 @@ A virtual record player for your Spotify now-playing, in the spirit of MD Vinyl.
 - Tonearm lifts to its rest when paused, lands on the outer groove on play, and sweeps inward as the track plays. The record spins up and coasts down.
 - Background is a soft, blurred, desaturated wash from the same palette so it sits behind the objects instead of competing with them.
 - Controls: previous, play/pause, next. Click the progress bar to seek. Space toggles play, Shift+Arrow skips.
+- Full screen: click the expand icon top right or press `F`. In full screen the top bar and controls fade out after a few seconds of no mouse movement, leaving just the turntable.
 
 ## One-time setup (about two minutes)
 
@@ -19,7 +20,7 @@ The app needs a Spotify *Client ID*. Spotify gives every developer their own for
 
 1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and click **Create app**.
 2. Name it anything (for example `Fora Vinyl`).
-3. Under **Redirect URIs**, add exactly: `https://fora-code.github.io/fora-vinyl-app/`
+3. Under **Redirect URIs**, add exactly: `https://fora-code.github.io/fora-Vinyl-app/`
    (the app shows this URI on its setup screen with a click-to-copy, so you can grab it from there).
 4. Under **APIs used**, tick **Web API** and **Web Playback SDK**. Save.
 5. Open the app's settings page in the dashboard and copy the **Client ID**.
