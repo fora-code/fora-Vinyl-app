@@ -29,7 +29,7 @@
         <span class="brand-dot"></span>
         <h1>Fora Vinyl</h1>
       </div>
-      <p class="lede">A virtual turntable for whatever you're playing on Spotify. One-time setup: this app needs a Spotify <em>Client ID</em> so it can sign you in.</p>
+      <p class="lede">Run this on <em>your own</em> Spotify app instead of the built-in one. Optional: most people can just go back and sign in.</p>
       <ol class="steps">
         <li>Open the <a href="https://developer.spotify.com/dashboard" target="_blank" rel="noopener">Spotify Developer Dashboard</a> and click <strong>Create app</strong>.</li>
         <li>Give it any name. Under <strong>Redirect URIs</strong> add exactly:
@@ -42,6 +42,7 @@
         <button type="submit" class="btn primary">Connect Spotify</button>
       </form>
       <p class="fine">Your Client ID is stored only in this browser. Nothing is sent anywhere except Spotify.</p>
+      <button id="setup-cancel" class="link">Never mind, use the built-in app</button>
     </div>
   </section>
 

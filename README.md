@@ -14,24 +14,27 @@ A virtual record player for your Spotify now-playing, in the spirit of MD Vinyl.
 - Controls: previous, play/pause, next. Click the progress bar to seek. Space toggles play, Shift+Arrow skips.
 - Full screen: click the expand icon top right or press `F`. In full screen the top bar and controls fade out after a few seconds of no mouse movement, leaving just the turntable.
 
-## One-time setup (about two minutes)
+## Using it
 
-The app needs a Spotify *Client ID*. Spotify gives every developer their own for free.
+Open the live link, click **Continue with Spotify**, approve the permissions, and you're on the turntable. The app's Spotify Client ID is built in, so there is nothing to configure.
 
-1. Go to the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) and click **Create app**.
-2. Name it anything (for example `Fora Vinyl`).
-3. Under **Redirect URIs**, add exactly: `https://fora-code.github.io/fora-Vinyl-app/`
-   (the app shows this URI on its setup screen with a click-to-copy, so you can grab it from there).
-4. Under **APIs used**, tick **Web API** and **Web Playback SDK**. Save.
-5. Open the app's settings page in the dashboard and copy the **Client ID**.
-6. Open the live site, paste the Client ID, click **Connect Spotify**, and approve the permissions.
+Everyone who opens the site signs in to their own Spotify account and sees only their own music. There is no server and no shared state: tokens live in each person's browser and nowhere else.
 
-The Client ID is saved in your browser's local storage. Use **Use a different Client ID** on the sign-in screen to change it.
+### Adding other people
+
+The Spotify app behind this runs in Development Mode, which allows up to 25 named users. To let someone else sign in, open the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard) > the Fora Vinyl app > **Settings** > **User Management**, and add their name and the email on their Spotify account. Anyone not on that list gets an error at the Spotify login screen.
+
+Going fully public would need Spotify to grant Extended Quota Mode, which they now reserve for registered businesses with an existing user base. The practical alternative is for a person to bring their own Spotify app, which the next section covers.
+
+### Bringing your own Client ID
+
+On the sign-in screen, **Use a different Client ID** opens the setup screen, where a viewer can point the app at their own free Spotify app instead. They need to create one in the dashboard with `https://fora-code.github.io/fora-Vinyl-app/` as a Redirect URI and **Web API** plus **Web Playback SDK** ticked. The ID is stored only in their browser.
+
+The built-in Client ID is the public half of the credentials, not the client secret. It appears in every authorization URL by design, and Spotify will only ever redirect back to the URI registered on the app, so publishing it is safe.
 
 ### Notes
 
 - Spotify only allows playback control (play, pause, skip) and in-browser audio on **Premium** accounts. On Free the turntable still displays what's playing.
-- New Spotify apps start in "development mode", which is fine for personal use. If you want other people to sign in, add their Spotify emails under **User Management** in the dashboard.
 - Chrome may block audio until you've clicked something on the page; the first press of play handles that.
 
 ## Run locally

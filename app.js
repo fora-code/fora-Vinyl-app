@@ -27,6 +27,11 @@
     "user-modify-playback-state",
     "user-read-currently-playing",
   ].join(" ");
+  // Built-in Spotify app. This is the public half of the credentials (never the
+  // client secret), so it is safe to ship: Spotify only ever redirects back to
+  // the redirect URI registered on the app itself.
+  const DEFAULT_CLIENT_ID = "e91bbfbd94c24b0b9cbf757bf134c83a";
+
   const PRESETS = ["solid", "black", "speckled", "translucent", "wavy"];
   const PRESET_LABELS = { solid: "Solid", black: "Classic black", speckled: "Speckled", translucent: "Translucent", wavy: "Wavy" };
   const DEVICE_NAME = "Fora Vinyl";
@@ -38,6 +43,10 @@
     set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch {} },
     del(k) { try { localStorage.removeItem(k); } catch {} },
   };
+
+  /** The Client ID in use: the one the viewer supplied, else the built-in app. */
+  const clientId = () => store.get(LS.clientId) || DEFAULT_CLIENT_ID;
+  let forceSetup = false; // set when the viewer asks to use their own Client ID
 
   function redirectUri() {
     let path = location.pathname.replace(/index\.html$/, "");
@@ -51,7 +60,6 @@
   const sha256 = (s) => crypto.subtle.digest("SHA-256", new TextEncoder().encode(s));
 
   async function beginLogin() {
-    const clientId = store.get(LS.clientId);
     const verifier = randomString(96);
     const state = randomString(16);
     store.set(LS.verifier, verifier);
@@ -59,7 +67,7 @@
     const challenge = b64url(await sha256(verifier));
     const p = new URLSearchParams({
       response_type: "code",
-      client_id: clientId,
+      client_id: clientId(),
       scope: SCOPES,
       redirect_uri: redirectUri(),
       code_challenge_method: "S256",
@@ -78,7 +86,7 @@
       grant_type: "authorization_code",
       code,
       redirect_uri: redirectUri(),
-      client_id: store.get(LS.clientId),
+      client_id: clientId(),
       code_verifier: verifier,
     });
     const r = await fetch("https://accounts.spotify.com/api/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
@@ -103,7 +111,7 @@
     if (!t.refresh_token) return null;
     if (!refreshing) {
       refreshing = (async () => {
-        const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: store.get(LS.clientId) });
+        const body = new URLSearchParams({ grant_type: "refresh_token", refresh_token: t.refresh_token, client_id: clientId() });
         const r = await fetch("https://accounts.spotify.com/api/token", { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body });
         if (!r.ok) { store.del(LS.tokens); throw new Error("Session expired. Please sign in again."); }
         saveTokens(await r.json());
@@ -629,10 +637,12 @@
       const id = $("client-id").value.trim();
       if (!/^[a-fA-F0-9]{32}$/.test(id)) return toast("That doesn't look like a Spotify Client ID (32 hex characters).");
       store.set(LS.clientId, id);
+      forceSetup = false;
       beginLogin();
     });
+    $("setup-cancel").addEventListener("click", () => { forceSetup = false; route(); });
     $("login-btn").addEventListener("click", beginLogin);
-    $("change-client").addEventListener("click", () => { store.del(LS.clientId); store.del(LS.tokens); route(); });
+    $("change-client").addEventListener("click", () => { forceSetup = true; store.del(LS.clientId); store.del(LS.tokens); route(); });
     $("logout").addEventListener("click", logout);
     $("playpause").addEventListener("click", () => control("toggle"));
     $("next").addEventListener("click", () => control("next"));
@@ -685,8 +695,7 @@
   }
 
   async function route() {
-    const clientId = store.get(LS.clientId);
-    if (!clientId) return show("setup");
+    if (forceSetup || !clientId()) return show("setup");
     if (!store.get(LS.tokens)) return show("login");
     show("player");
     renderVinyl(PRESETS[state.presetIndex], palette, "boot");
