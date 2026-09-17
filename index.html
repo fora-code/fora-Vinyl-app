@@ -10,6 +10,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Fraunces:opsz,wght@9..144,500;9..144,600&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="themes.css" />
 </head>
 <body>
   <!-- Ambient background: three soft blobs tinted from the album palette -->
@@ -65,22 +66,76 @@
   <!-- Player -->
   <main id="player" class="screen hidden">
     <header class="topbar">
-      <div class="brand small">
-        <span class="brand-dot"></span>
-        <span>Fora Vinyl</span>
-      </div>
       <div class="topbar-right">
-        <span id="device-pill" class="pill" title="Where Spotify is playing"></span>
-        <button id="preset-btn" class="pill btn-pill" title="Cycle vinyl style"></button>
-        <button id="fullscreen" class="icon-btn" title="Full screen (F)" aria-label="Toggle full screen">
-          <svg id="icon-expand" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>
-          <svg id="icon-compress" viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" class="hidden"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 4v5H4M15 9V4h5M20 15h-5v5M4 15h5v5"/></svg>
+        <button id="library-btn" class="icon-btn" title="Library (L)" aria-label="Open your library">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M4 4v16M9 4v16M13.5 5.2l4.6 14.4M3 20h18"/></svg>
         </button>
-        <button id="logout" class="link">Sign out</button>
+        <button id="settings-btn" class="icon-btn" title="Settings" aria-haspopup="dialog" aria-expanded="false" aria-label="Settings">
+          <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z"/><path fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.6a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+        </button>
+      </div>
+
+      <div id="settings-panel" class="settings-panel hidden" role="dialog" aria-label="Settings">
+        <div class="settings-head">
+          <span class="brand-dot"></span>
+          <span class="settings-title">Fora Vinyl</span>
+        </div>
+
+        <div class="settings-row">
+          <span class="settings-label">Status</span>
+          <span id="device-pill" class="settings-value"></span>
+        </div>
+
+        <div class="settings-row">
+          <span class="settings-label">Appearance</span>
+          <select id="mode-select" class="settings-select" aria-label="Appearance">
+            <option value="light">Light</option>
+            <option value="dark">Dark</option>
+          </select>
+        </div>
+
+        <div class="settings-row">
+          <span class="settings-label">Theme</span>
+          <select id="theme-select" class="settings-select" aria-label="Theme"></select>
+        </div>
+
+        <div class="settings-row">
+          <span class="settings-label">Library</span>
+          <button id="library-row-btn" class="settings-btn" title="Browse albums and playlists (L)">Open shelf</button>
+        </div>
+
+        <div class="settings-row">
+          <span class="settings-label">Vinyl style</span>
+          <button id="preset-btn" class="settings-btn" title="Cycle vinyl style (V)"></button>
+        </div>
+
+        <div class="settings-row">
+          <span class="settings-label">Full screen</span>
+          <button id="fullscreen" class="settings-btn" title="Full screen (F)">
+            <span id="fs-label">Enter</span>
+            <svg id="icon-expand" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M4 9V4h5M15 4h5v5M20 15v5h-5M9 20H4v-5"/></svg>
+            <svg id="icon-compress" viewBox="0 0 24 24" width="14" height="14" aria-hidden="true" class="hidden"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M9 4v5H4M15 9V4h5M20 15h-5v5M4 15h5v5"/></svg>
+          </button>
+        </div>
+
+        <div class="settings-row">
+          <span class="settings-label">Clean view</span>
+          <button id="bare-btn" class="settings-btn" title="Hide everything but the record">Hide UI</button>
+        </div>
+
+        <p class="settings-hint">Double-click the background to clear the screen. Tap the record to play or pause, drag it to scrub. Arrow keys up and down change volume, D flips light and dark.</p>
+
+        <div class="settings-foot">
+          <button id="logout" class="link">Sign out</button>
+        </div>
       </div>
     </header>
 
     <section class="stage">
+      <div class="scene-frame">
+        <!-- Illustrated background for scene themes; empty otherwise -->
+        <div id="scene" class="scene" aria-hidden="true"></div>
+
       <!-- Album cover card -->
       <figure class="cover-card">
         <div class="cover-frame">
@@ -116,6 +171,7 @@
           </div>
         </div>
       </div>
+      </div><!-- /scene-frame -->
     </section>
 
     <section class="now">
@@ -145,13 +201,47 @@
         <button id="next" class="ctl" aria-label="Next">
           <svg viewBox="0 0 24 24" width="26" height="26"><path fill="currentColor" d="M16 5h2v14h-2V5ZM5.5 5 15 12l-9.5 7V5Z"/></svg>
         </button>
+        <div id="volume" class="volume">
+          <input id="volume-slider" class="volume-slider" type="range" min="0" max="100" step="1" value="50" aria-label="Volume" orient="vertical" />
+          <button id="volume-btn" class="ctl small" aria-label="Volume">
+            <svg id="icon-vol-high" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4Z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12"/></svg>
+            <svg id="icon-vol-low" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" class="hidden"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4Z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16 8.5a5 5 0 0 1 0 7"/></svg>
+            <svg id="icon-vol-off" viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" class="hidden"><path fill="currentColor" d="M4 9v6h4l5 4V5L8 9H4Z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M16.5 9.5l5 5M21.5 9.5l-5 5"/></svg>
+          </button>
+        </div>
       </div>
+    </section>
+
+    <!-- Library shelf -->
+    <section id="library" class="library hidden" role="dialog" aria-label="Your library">
+      <div class="library-head">
+        <div class="tabs" role="tablist">
+          <button class="tab is-active" role="tab" data-tab="albums" aria-selected="true">Albums</button>
+          <button class="tab" role="tab" data-tab="playlists" aria-selected="false">Playlists</button>
+        </div>
+        <div class="library-tools">
+          <input id="library-filter" class="library-filter" type="search" placeholder="Filter" aria-label="Filter the shelf" autocomplete="off" spellcheck="false" />
+          <button id="library-refresh" class="icon-btn" title="Reload from Spotify" aria-label="Reload">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" d="M20 12a8 8 0 1 1-2.34-5.66M20 4v5h-5"/></svg>
+          </button>
+          <button id="library-close" class="icon-btn" title="Close (Esc)" aria-label="Close library">
+            <svg viewBox="0 0 24 24" width="16" height="16" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" d="M6 6l12 12M18 6L6 18"/></svg>
+          </button>
+        </div>
+      </div>
+      <div id="shelf" class="shelf" tabindex="0">
+        <div id="shelf-row" class="shelf-row"></div>
+      </div>
+      <div class="shelf-plank"></div>
+      <p id="library-status" class="library-status"></p>
     </section>
 
     <div id="toast" class="toast hidden"></div>
   </main>
 
   <script src="https://sdk.scdn.co/spotify-player.js"></script>
+  <script src="scenes.js"></script>
   <script src="app.js"></script>
+  <script src="library.js"></script>
 </body>
 </html>

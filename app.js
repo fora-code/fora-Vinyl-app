@@ -18,6 +18,8 @@
     state: "fv.pkce.state",
     preset: "fv.presetIndex",
     lastTrack: "fv.lastTrackId",
+    theme: "fv.theme",
+    mode: "fv.mode",
   };
   const SCOPES = [
     "streaming",
@@ -26,6 +28,9 @@
     "user-read-playback-state",
     "user-modify-playback-state",
     "user-read-currently-playing",
+    "user-library-read",             // saved albums, for the shelf
+    "playlist-read-private",         // the viewer's own playlists
+    "playlist-read-collaborative",
   ].join(" ");
   // Built-in Spotify app. This is the public half of the credentials (never the
   // client secret), so it is safe to ship: Spotify only ever redirects back to
@@ -100,7 +105,19 @@
       access_token: t.access_token,
       refresh_token: t.refresh_token || prev.refresh_token,
       expires_at: Date.now() + (t.expires_in || 3600) * 1000 - 30000,
+      // Remembered so a later version that needs more permissions can tell,
+      // and send the viewer back through Spotify's consent screen once.
+      scope: t.scope || prev.scope || "",
     });
+  }
+
+  /** True when the stored session was granted everything this build asks for. */
+  function tokensCoverScopes() {
+    const t = store.get(LS.tokens);
+    if (!t) return false;
+    if (!t.scope) return false; // a session from before scopes were recorded
+    const have = new Set(t.scope.split(/\s+/));
+    return SCOPES.split(" ").every((s) => have.has(s));
   }
 
   let refreshing = null;
@@ -189,6 +206,11 @@
     deviceIsLocal: false,
     hasDevice: false,
     presetIndex: store.get(LS.preset, 0) || 0,
+    theme: store.get(LS.theme, "classic") || "classic",
+    mode: store.get(LS.mode, "light") === "dark" ? "dark" : "light",
+    volume: null,            // 0..100 from the active device, null when unknown
+    volumeSupported: true,   // Spotify refuses volume changes on some devices
+    volumeHoldUntil: 0,      // ignore polled volume briefly after the viewer drags
   };
   let lastTrackId = store.get(LS.lastTrack, null);
 
@@ -239,8 +261,10 @@
         state.deviceIsLocal = local;
         state.hasDevice = true;
         state.deviceName = (p.device && p.device.name) || "";
+        readDeviceVolume(p.device);
       } else if (p && p.device) {
         state.hasDevice = true; state.deviceName = p.device.name; setPosition(0, false);
+        readDeviceVolume(p.device);
       } else {
         state.hasDevice = false; state.deviceName = ""; setPosition(currentPosition(), false);
       }
@@ -285,6 +309,55 @@
       else if (e.reason === "PREMIUM_REQUIRED" || e.status === 403) toast("Spotify only allows playback control with Premium.");
       else toast(e.message);
     }
+  }
+
+  /* ---------------- volume ---------------- */
+  function readDeviceVolume(device) {
+    if (!device) return;
+    if (performance.now() < state.volumeHoldUntil) return; // the viewer is mid-drag
+    if (typeof device.volume_percent === "number") state.volume = device.volume_percent;
+    if (typeof device.supports_volume === "boolean") state.volumeSupported = device.supports_volume;
+    renderVolume();
+  }
+
+  let volumeTimer = null, volumeInFlight = false, volumePending = null;
+  /** Debounced and serialised: Spotify rate-limits this endpoint hard. */
+  function setVolume(pct) {
+    pct = clamp(Math.round(pct), 0, 100);
+    state.volume = pct;
+    state.volumeHoldUntil = performance.now() + 2500;
+    renderVolume();
+    volumePending = pct;
+    clearTimeout(volumeTimer);
+    volumeTimer = setTimeout(flushVolume, 120);
+  }
+  async function flushVolume() {
+    if (volumeInFlight || volumePending === null) return;
+    const pct = volumePending; volumePending = null; volumeInFlight = true;
+    try {
+      await api("/me/player/volume?volume_percent=" + pct, { method: "PUT" });
+    } catch (e) {
+      if (e.status === 403 || /not supported|VOLUME_CONTROL_DISALLOW/i.test(e.message)) {
+        state.volumeSupported = false; renderVolume();
+        toast("Spotify doesn't allow volume control on " + (state.deviceName || "this device") + ". Use the device's own volume.");
+      } else if (e.status !== 404) toast(e.message);
+    } finally {
+      volumeInFlight = false;
+      if (volumePending !== null) flushVolume();
+    }
+  }
+  function renderVolume() {
+    const wrap = $("volume"), slider = $("volume-slider"), btn = $("volume-btn");
+    if (!wrap) return;
+    const v = state.volume;
+    wrap.classList.toggle("unsupported", !state.volumeSupported);
+    slider.disabled = !state.volumeSupported;
+    if (v !== null && document.activeElement !== slider) slider.value = v;
+    slider.style.setProperty("--fill", (v === null ? 0 : v) + "%");
+    $("icon-vol-off").classList.toggle("hidden", !(v === 0));
+    $("icon-vol-low").classList.toggle("hidden", !(v !== null && v > 0 && v < 50));
+    $("icon-vol-high").classList.toggle("hidden", !(v === null || v >= 50));
+    btn.setAttribute("aria-label", state.volumeSupported ? `Volume ${v === null ? "" : v + "%"}` : "Volume not available on this device");
   }
 
   async function seekTo(fraction) {
@@ -367,13 +440,39 @@
     root.setProperty("--c1", hslToHex(...accent));
     root.setProperty("--c2", hslToHex(p.c2[0], clamp(p.c2[1], 0.25, 0.8), clamp(p.c2[2], 0.3, 0.6)));
     root.setProperty("--c3", hslToHex(p.c3[0], clamp(p.c3[1], 0.2, 0.7), clamp(p.c3[2], 0.25, 0.55)));
-    // Background: same hues, much quieter. Sits far behind the objects.
-    root.setProperty("--bg-a", hslToHex(p.c1[0], clamp(p.c1[1] * 0.55, 0.12, 0.45), 0.26));
-    root.setProperty("--bg-b", hslToHex(p.c2[0], clamp(p.c2[1] * 0.5, 0.1, 0.4), 0.2));
-    root.setProperty("--bg-c", hslToHex(p.c3[0], clamp(p.c3[1] * 0.45, 0.08, 0.35), 0.17));
+
+    const sat = (x, lo, hi) => clamp(x * 1.05, lo, hi);
+    const dark = state.mode === "dark";
+    document.documentElement.classList.toggle("dark-mode", dark);
+    if (dark) {
+      // Dark: the same hues, sunk deep. Still unmistakably the album's colours,
+      // just lit like a room at night.
+      root.setProperty("--bg-a", hslToHex(p.c1[0], sat(p.c1[1], 0.3, 0.7), 0.30));
+      root.setProperty("--bg-b", hslToHex(p.c2[0], sat(p.c2[1], 0.28, 0.65), 0.22));
+      root.setProperty("--bg-c", hslToHex(p.c3[0], sat(p.c3[1], 0.25, 0.6), 0.18));
+      const top = hslToHex(p.c1[0], sat(p.c1[1], 0.25, 0.55), 0.20);
+      const mid = hslToHex(p.c2[0], sat(p.c2[1], 0.22, 0.5), 0.13);
+      const edge = hslToHex(p.c3[0], sat(p.c3[1], 0.2, 0.45), 0.08);
+      document.querySelector(".bg-base").style.background =
+        `radial-gradient(120% 100% at 28% 18%, ${top} 0%, ${mid} 55%, ${edge} 100%)`;
+      document.documentElement.classList.remove("light-ui");
+    } else {
+      // Light: the record's own colours, lifted and kept colourful, so the whole
+      // room takes on the album. Primary hue floods the base, the secondary and
+      // tertiary hues drift through it as soft blobs.
+      root.setProperty("--bg-a", hslToHex(p.c1[0], sat(p.c1[1], 0.42, 0.82), 0.60));
+      root.setProperty("--bg-b", hslToHex(p.c2[0], sat(p.c2[1], 0.38, 0.78), 0.50));
+      root.setProperty("--bg-c", hslToHex(p.c3[0], sat(p.c3[1], 0.34, 0.72), 0.44));
+      const top = hslToHex(p.c1[0], sat(p.c1[1], 0.35, 0.7), 0.66);
+      const mid = hslToHex(p.c2[0], sat(p.c2[1], 0.32, 0.66), 0.5);
+      const edge = hslToHex(p.c3[0], sat(p.c3[1], 0.3, 0.6), 0.38);
+      document.querySelector(".bg-base").style.background =
+        `radial-gradient(120% 100% at 28% 18%, ${top} 0%, ${mid} 52%, ${edge} 100%)`;
+      // only a very pale album flips the type to dark
+      const paleAlbum = p.c1[2] > 0.8 && p.c1[1] < 0.25;
+      document.documentElement.classList.toggle("light-ui", paleAlbum);
+    }
     root.setProperty("--ink", accent[2] > 0.58 ? "#111" : "#fff");
-    const base = hslToHex(p.c1[0], 0.18, 0.09);
-    document.querySelector(".bg-base").style.background = `radial-gradient(120% 90% at 50% 40%, ${base} 0%, #0b0b0e 100%)`;
   }
 
   /* ---------------- 6. vinyl renderer ---------------- */
@@ -436,18 +535,23 @@
       g.addColorStop(1, `rgba(${r1},${g1},${b1},0.68)`);
       ctx.fillStyle = g; ctx.fillRect(0, 0, SIZE, SIZE);
     } else if (preset === "wavy") {
-      // marbled swirl of the three palette colors, computed per pixel
-      const img = ctx.createImageData(SIZE, SIZE);
+      // Marbled swirl of the three palette colours. Computed per pixel on a
+      // small buffer and scaled up: the pattern has no fine detail, and doing
+      // the trig a million times stalls the frame loop for a third of a second
+      // right when the tonearm is moving. The grooves are still drawn at full
+      // resolution over the top.
+      const W = 256, s = SIZE / W;
+      const img = ctx.createImageData(W, W);
       const d = img.data;
       const A = hexToRgb(hex(c1, clamp(c1[1], 0.5, 0.9), clamp(c1[2], 0.45, 0.6)));
       const B = hexToRgb(hex(c2, clamp(c2[1], 0.4, 0.9), clamp(c2[2], 0.28, 0.5)));
       const C = hexToRgb(hex(c3, clamp(c3[1], 0.3, 0.85), clamp(c3[2], 0.2, 0.45)));
       const ph1 = rnd() * 6.28, ph2 = rnd() * 6.28, lobes = 2 + Math.floor(rnd() * 3);
-      for (let y = 0; y < SIZE; y++) {
-        for (let x = 0; x < SIZE; x++) {
-          const dx = x - R, dy = y - R, r = Math.hypot(dx, dy);
-          const i = (y * SIZE + x) * 4;
-          if (r > R) { d[i + 3] = 0; continue; }
+      const Rw = W / 2;
+      for (let y = 0; y < W; y++) {
+        for (let x = 0; x < W; x++) {
+          const dx = (x - Rw) * s, dy = (y - Rw) * s, r = Math.hypot(dx, dy);
+          const i = (y * W + x) * 4;
           const th = Math.atan2(dy, dx);
           const w = 0.5 + 0.5 * Math.sin(th * lobes + r * 0.028 + ph1 + 1.6 * Math.sin(th * (lobes + 1) - r * 0.012 + ph2));
           const v = 0.5 + 0.5 * Math.sin(r * 0.05 - th * 2 + ph2 * 0.7 + 1.2 * w);
@@ -458,9 +562,10 @@
           d[i] = cr; d[i + 1] = cg; d[i + 2] = cb; d[i + 3] = 255;
         }
       }
-      ctx.putImageData(img, 0, 0);
-      // re-establish clip after putImageData (it ignores clipping)
-      ctx.restore(); ctx.save(); ctx.beginPath(); ctx.arc(R, R, R - 2, 0, Math.PI * 2); ctx.clip();
+      const tmp = document.createElement("canvas"); tmp.width = tmp.height = W;
+      tmp.getContext("2d").putImageData(img, 0, 0);
+      ctx.imageSmoothingEnabled = true; ctx.imageSmoothingQuality = "high";
+      ctx.drawImage(tmp, 0, 0, SIZE, SIZE);
     }
 
     // ---- grooves ----
@@ -523,7 +628,19 @@
 
   /* ---------------- 7. background, tonearm, spin loop ---------------- */
   // Tonearm geometry in turntable units (must match styles.css .platter / .tonearm / .arm)
-  const GEO = { pivot: [0.88, 0.14], center: [0.42, 0.46], L: 0.60, rOut: 0.39 * (GROOVE_OUT / R), rIn: 0.39 * (GROOVE_IN / R), restDeg: -8 };
+  // Defaults are the Classic deck. Themes can move the pivot, change the arm
+  // length, pick which side the arm approaches from, and set its rest angle,
+  // through CSS variables (--arm-px, --arm-py, --arm-len, --arm-side, --arm-rest)
+  // read back in readArmGeometry().
+  const GEO = { pivot: [0.88, 0.14], center: [0.42, 0.46], L: 0.60, side: -1, rOut: 0.39 * (GROOVE_OUT / R), rIn: 0.39 * (GROOVE_IN / R), restDeg: -8 };
+  function readArmGeometry() {
+    const cs = getComputedStyle($("player"));
+    const num = (name, fallback) => { const v = parseFloat(cs.getPropertyValue(name)); return Number.isFinite(v) ? v : fallback; };
+    GEO.pivot = [num("--arm-px", 0.88), num("--arm-py", 0.14)];
+    GEO.L = num("--arm-len", 0.60);
+    GEO.side = num("--arm-side", -1) >= 0 ? 1 : -1;
+    GEO.restDeg = num("--arm-rest", -8);
+  }
   function armAngleFor(progress) {
     const [px, py] = GEO.pivot, [cx, cy] = GEO.center;
     const dx = cx - px, dy = cy - py, d = Math.hypot(dx, dy);
@@ -531,37 +648,147 @@
     const cosT = clamp((d * d + GEO.L * GEO.L - r * r) / (2 * d * GEO.L), -1, 1);
     const theta = Math.acos(cosT);
     const base = Math.atan2(dy, dx);
-    return ((base - theta) * 180) / Math.PI - 90;
+    return ((base + GEO.side * theta) * 180) / Math.PI - 90;
   }
 
   const recordEl = $("record");
   const armEl = document.querySelector(".arm");
   let spinAngle = 0, spinSpeed = 0, lastFrame = performance.now();
-  let lastArmDeg = null;
+
+  // The arm angle and the stylus lift are both eased here, per frame, rather than
+  // by a CSS transition. A transition would be restarted on every frame by the
+  // tracking updates, which is what made the drop stutter.
+  // Critically damped springs: they leave and arrive at a standstill and never
+  // overshoot, which is how a real tonearm moves. A plain exponential ease is
+  // fastest on its very first frame, which reads as a flinch at the start.
+  let armDeg = GEO.restDeg, armVel = 0;
+  let armLift = 1, liftVel = 0;
+  let armSettled = false;  // true once the arm has swung into position
+  const ARM_W = 3.2, LIFT_W = 7;
+
+  function spring(x, v, target, w, dt) {
+    const a = x - target, b = v + w * a, e = Math.exp(-w * dt);
+    return [target + (a + b * dt) * e, (b - w * (a + b * dt)) * e];
+  }
+
+  /** Where the arm should sit right now, 0..1 through the record. */
+  function armTargetProgress() {
+    if (!state.durationMs) return 0;
+    return (scrub.active ? scrub.targetMs : currentPosition()) / state.durationMs;
+  }
 
   function frame(now) {
-    const dt = Math.min(0.1, (now - lastFrame) / 1000); lastFrame = now;
-    const target = state.playing ? RPM_DEG_PER_S : 0;
-    const k = state.playing ? 2.2 : 1.4; // spin-up quicker than coast-down
-    spinSpeed += (target - spinSpeed) * Math.min(1, dt * k);
-    if (!state.playing && spinSpeed < 0.5) spinSpeed = 0;
-    spinAngle = (spinAngle + spinSpeed * dt) % 360;
+    // Real elapsed time, capped only against tab-switch gaps. The springs below
+    // are exact closed-form solutions, so feeding them true dt keeps the motion
+    // the same wall-clock duration whatever the frame rate.
+    const dt = Math.min(0.25, (now - lastFrame) / 1000); lastFrame = now;
+
+    // Spin. While a hand is on the record it follows the pointer instead.
+    if (scrub.active) {
+      spinSpeed = 0;
+      spinAngle = scrub.baseAngle + scrub.accumDeg;
+    } else {
+      const target = state.playing ? RPM_DEG_PER_S : 0;
+      const k = state.playing ? 2.2 : 1.4; // spin-up quicker than coast-down
+      spinSpeed += (target - spinSpeed) * Math.min(1, dt * k);
+      if (!state.playing && spinSpeed < 0.5) spinSpeed = 0;
+      spinAngle = (spinAngle + spinSpeed * dt) % 360;
+    }
     recordEl.style.transform = `rotate(${spinAngle}deg)`;
 
-    // tonearm
-    const progress = state.durationMs ? currentPosition() / state.durationMs : 0;
-    const deg = state.playing ? armAngleFor(progress) : GEO.restDeg;
-    if (lastArmDeg === null || Math.abs(deg - lastArmDeg) > 0.02) { armEl.style.transform = `rotate(${deg}deg)`; lastArmDeg = deg; }
+    // Tonearm. Down on the record whenever it is playing or being handled.
+    const down = state.playing || scrub.active;
+    const targetDeg = down ? armAngleFor(armTargetProgress()) : GEO.restDeg;
+    [armDeg, armVel] = spring(armDeg, armVel, targetDeg, ARM_W, dt);
 
-    // progress bar (only while playing; renderMeta handles the rest)
-    if (state.playing && state.durationMs) updateProgressUi();
+    // The stylus stays raised until the arm has arrived, then lowers into the
+    // groove, and lifts clear before the arm swings back to its rest.
+    if (!down) armSettled = false;
+    else if (!armSettled && Math.abs(armDeg - targetDeg) < 6) armSettled = true;
+    [armLift, liftVel] = spring(armLift, liftVel, down && armSettled ? 0 : 1, LIFT_W, dt);
+
+    armEl.style.transform = `rotate(${armDeg}deg)`;
+    armEl.style.setProperty("--lift", armLift.toFixed(3));
+
+    if ((state.playing || scrub.active) && state.durationMs) updateProgressUi();
     requestAnimationFrame(frame);
+  }
+
+  /* ---------------- 7b. record gestures: tap to play/pause, drag to scrub ---- */
+  // One full turn of the record moves this far through the song. A real 33rpm
+  // disc would be 1.8s per turn, which is too fine to seek with, so this is
+  // deliberately faster.
+  const SECONDS_PER_TURN = 15;
+  const TAP_MAX_DEG = 7, TAP_MAX_MS = 350;
+
+  const scrub = {
+    active: false, pointerId: null,
+    lastPointerDeg: 0, accumDeg: 0, travelDeg: 0,
+    baseAngle: 0, startMs: 0, targetMs: 0,
+    wasPlaying: false, startedAt: 0,
+  };
+
+  const pointerDegFrom = (el, e) => {
+    const r = el.getBoundingClientRect();
+    return (Math.atan2(e.clientY - (r.top + r.height / 2), e.clientX - (r.left + r.width / 2)) * 180) / Math.PI;
+  };
+
+  function beginScrub(e) {
+    if (!state.trackId) return;
+    scrub.active = true;
+    scrub.pointerId = e.pointerId;
+    scrub.lastPointerDeg = pointerDegFrom(recordEl, e);
+    scrub.accumDeg = 0; scrub.travelDeg = 0;
+    scrub.baseAngle = spinAngle;
+    scrub.startMs = currentPosition();
+    scrub.targetMs = scrub.startMs;
+    scrub.wasPlaying = state.playing;
+    scrub.startedAt = performance.now();
+    recordEl.classList.add("grabbing");
+    try { recordEl.setPointerCapture(e.pointerId); } catch {}
+    // A hand on the record stops it, exactly as it would in the real world.
+    if (state.playing) { setPosition(scrub.startMs, false); renderMeta(); api("/me/player/pause", { method: "PUT" }).catch(() => {}); }
+  }
+
+  function moveScrub(e) {
+    if (!scrub.active || e.pointerId !== scrub.pointerId) return;
+    const deg = pointerDegFrom(recordEl, e);
+    let delta = deg - scrub.lastPointerDeg;
+    if (delta > 180) delta -= 360; else if (delta < -180) delta += 360; // shortest way round
+    scrub.lastPointerDeg = deg;
+    scrub.accumDeg += delta;
+    scrub.travelDeg += Math.abs(delta);
+    const msPerDeg = (SECONDS_PER_TURN * 1000) / 360;
+    scrub.targetMs = clamp(scrub.startMs + scrub.accumDeg * msPerDeg, 0, state.durationMs || 0);
+  }
+
+  async function endScrub(e) {
+    if (!scrub.active || (e && e.pointerId !== scrub.pointerId)) return;
+    const tapped = scrub.travelDeg < TAP_MAX_DEG && performance.now() - scrub.startedAt < TAP_MAX_MS;
+    const target = scrub.targetMs, wasPlaying = scrub.wasPlaying;
+    scrub.active = false; scrub.pointerId = null;
+    recordEl.classList.remove("grabbing");
+    spinAngle = ((spinAngle % 360) + 360) % 360;
+
+    if (tapped) {
+      // A tap on a spinning record has already stopped it. A tap on a stopped
+      // one starts it again.
+      if (!wasPlaying) control("toggle");
+      return;
+    }
+    setPosition(target, false);
+    renderMeta();
+    try {
+      await api("/me/player/seek?position_ms=" + Math.round(target), { method: "PUT" });
+      if (wasPlaying) { await api("/me/player/play", { method: "PUT" }); setPosition(target, true); renderMeta(); }
+    } catch (err) { toast(err.message); }
+    setTimeout(poll, 400);
   }
 
   /* ---------------- 8. UI ---------------- */
   const fmt = (ms) => { ms = Math.max(0, ms | 0); const s = Math.floor(ms / 1000); return Math.floor(s / 60) + ":" + String(s % 60).padStart(2, "0"); };
   function updateProgressUi() {
-    const pos = currentPosition();
+    const pos = scrub.active ? scrub.targetMs : currentPosition();
     const pct = state.durationMs ? (pos / state.durationMs) * 100 : 0;
     $("bar-fill").style.width = pct + "%";
     $("bar-knob").style.left = pct + "%";
@@ -571,6 +798,7 @@
   }
 
   function renderMeta() {
+    $("player").classList.toggle("is-playing", state.playing);
     $("title").textContent = state.title || (state.hasDevice ? "Nothing playing" : "Nothing playing");
     $("artist").textContent = state.artist || (state.hasDevice ? "Pick a song on Spotify, or press play." : "Press play to play here, or start Spotify on any device.");
     $("album").textContent = state.album || "";
@@ -578,7 +806,7 @@
     $("icon-pause").classList.toggle("hidden", !state.playing);
     $("playpause").setAttribute("aria-label", state.playing ? "Pause" : "Play");
     const pill = $("device-pill");
-    pill.textContent = !state.hasDevice ? "No active device" : state.deviceIsLocal ? "Playing in this tab" : "Playing on " + state.deviceName;
+    pill.textContent = !state.hasDevice ? "No active device" : state.deviceIsLocal ? "This tab" : state.deviceName;
     $("preset-btn").textContent = PRESET_LABELS[PRESETS[state.presetIndex % PRESETS.length]];
     document.title = state.title ? `${state.title} · ${state.artist} — Fora Vinyl` : "Fora Vinyl";
     updateProgressUi();
@@ -673,6 +901,7 @@
       playerEl.classList.toggle("is-fullscreen", on);
       $("icon-expand").classList.toggle("hidden", on);
       $("icon-compress").classList.toggle("hidden", !on);
+      $("fs-label").textContent = on ? "Exit" : "Enter";
       $("fullscreen").setAttribute("title", on ? "Exit full screen (F)" : "Full screen (F)");
       wake();
     };
@@ -681,6 +910,80 @@
     document.addEventListener("webkitfullscreenchange", onFsChange);
     for (const ev of ["mousemove", "mousedown", "touchstart", "keydown"]) document.addEventListener(ev, wake, { passive: true });
     window.__toggleFullscreen = toggleFullscreen;
+
+    // Settings popover
+    const panel = $("settings-panel"), gear = $("settings-btn");
+    const setPanel = (open) => {
+      panel.classList.toggle("hidden", !open);
+      gear.setAttribute("aria-expanded", open ? "true" : "false");
+    };
+    gear.addEventListener("click", (e) => { e.stopPropagation(); setPanel(panel.classList.contains("hidden")); });
+    panel.addEventListener("click", (e) => e.stopPropagation());
+    document.addEventListener("click", () => setPanel(false));
+    window.__closeSettings = () => setPanel(false);
+
+    // Clean view: double-click anywhere that isn't a control or one of the objects
+    const BARE_SAFE = ".record, .cover-card, .controls, .progress, .settings-panel, .topbar, .meta, .toast";
+    const setBare = (on) => {
+      playerEl.classList.toggle("is-bare", on);
+      $("bare-btn").textContent = on ? "Show UI" : "Hide UI";
+      if (on) setPanel(false);
+    };
+    playerEl.addEventListener("dblclick", (e) => {
+      if (e.target.closest(BARE_SAFE)) return;
+      const sel = window.getSelection(); if (sel) sel.removeAllRanges();
+      setBare(!playerEl.classList.contains("is-bare"));
+    });
+    $("bare-btn").addEventListener("click", () => setBare(!playerEl.classList.contains("is-bare")));
+    document.addEventListener("keydown", (e) => {
+      if (e.key !== "Escape") return;
+      if (!panel.classList.contains("hidden")) setPanel(false);
+      else if (playerEl.classList.contains("is-bare")) setBare(false);
+    });
+
+    // Theme picker
+    const sel = $("theme-select");
+    for (const [k, label] of Object.entries(THEMES)) { const o = document.createElement("option"); o.value = k; o.textContent = label; sel.appendChild(o); }
+    sel.value = state.theme;
+    sel.addEventListener("change", () => applyTheme(sel.value));
+    const modeSel = $("mode-select");
+    modeSel.value = state.mode;
+    modeSel.addEventListener("change", () => applyMode(modeSel.value));
+    document.addEventListener("keydown", (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+      if (e.key.toLowerCase() === "d" && !e.metaKey && !e.ctrlKey) applyMode(state.mode === "dark" ? "light" : "dark");
+    });
+
+    // Volume: the button reveals the slider, the slider talks to Spotify
+    const volWrap = $("volume");
+    $("volume-btn").addEventListener("click", (e) => {
+      e.stopPropagation();
+      if (!state.volumeSupported) return toast("Spotify doesn't allow volume control on " + (state.deviceName || "this device") + ".");
+      volWrap.classList.toggle("open");
+      if (volWrap.classList.contains("open")) $("volume-slider").focus();
+    });
+    $("volume-slider").addEventListener("input", (e) => setVolume(+e.target.value));
+    document.addEventListener("click", (e) => { if (!e.target.closest("#volume")) volWrap.classList.remove("open"); });
+    document.addEventListener("keydown", (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+      if (e.key === "ArrowUp" && !e.shiftKey && state.volumeSupported) { e.preventDefault(); setVolume((state.volume ?? 50) + 5); }
+      else if (e.key === "ArrowDown" && !e.shiftKey && state.volumeSupported) { e.preventDefault(); setVolume((state.volume ?? 50) - 5); }
+    });
+
+    // Library (the shelf lives in library.js; these just open it)
+    $("library-btn").addEventListener("click", (e) => { e.stopPropagation(); setPanel(false); window.FV.library && window.FV.library.toggle(); });
+    $("library-row-btn").addEventListener("click", () => { setPanel(false); window.FV.library && window.FV.library.toggle(); });
+    document.addEventListener("keydown", (e) => {
+      if (e.target.tagName === "INPUT" || e.target.tagName === "SELECT") return;
+      if (e.key.toLowerCase() === "l" && !e.metaKey && !e.ctrlKey) window.FV.library && window.FV.library.toggle();
+    });
+
+    // Record gestures
+    recordEl.addEventListener("pointerdown", (e) => { e.preventDefault(); beginScrub(e); });
+    recordEl.addEventListener("pointermove", moveScrub);
+    recordEl.addEventListener("pointerup", endScrub);
+    recordEl.addEventListener("pointercancel", endScrub);
+    recordEl.addEventListener("dblclick", (e) => e.preventDefault()); // never clear the view from the record
 
     $("bar").addEventListener("click", (e) => { const r = e.currentTarget.getBoundingClientRect(); seekTo((e.clientX - r.left) / r.width); });
     document.addEventListener("keydown", (e) => {
@@ -692,12 +995,74 @@
       else if (e.key.toLowerCase() === "f" && !e.metaKey && !e.ctrlKey) window.__toggleFullscreen();
     });
     document.addEventListener("visibilitychange", () => { if (!document.hidden) poll(); });
+    window.addEventListener("resize", fitSceneFrame);
+  }
+
+  /* ---------------- themes ---------------- */
+  const THEMES = {
+    classic: "Classic",
+    wood: "Dark Wood",
+    acrylic: "Clear Acrylic",
+    art: "Art Only",
+    sleeve: "Sleeve",
+    lofi: "Lofi Window",
+    cyber: "Neon Night",
+  };
+  const SCENE_THEMES = new Set(["lofi", "cyber"]);
+
+  /** Scene themes draw into a fixed 16:9 frame so their layout never drifts. */
+  let sceneAspect = 16 / 9;
+  function fitSceneFrame() {
+    const frame = document.querySelector(".scene-frame"), stage = document.querySelector(".stage");
+    if (!frame || !stage) return;
+    if (!$("player").classList.contains("has-scene")) { frame.style.width = frame.style.height = ""; frame.style.removeProperty("--fw"); return; }
+    const w = stage.clientWidth, h = stage.clientHeight;
+    const fw = Math.min(w, h * sceneAspect), fh = fw / sceneAspect;
+    frame.style.width = fw + "px"; frame.style.height = fh + "px";
+    frame.style.setProperty("--fw", fw + "px");
+  }
+
+  function applyMode(mode) {
+    state.mode = mode === "dark" ? "dark" : "light";
+    store.set(LS.mode, state.mode);
+    const sel = $("mode-select"); if (sel && sel.value !== state.mode) sel.value = state.mode;
+    applyPaletteToCss(palette);
+  }
+
+  function applyTheme(name) {
+    if (!THEMES[name]) name = "classic";
+    state.theme = name;
+    store.set(LS.theme, name);
+    const playerEl = $("player");
+    playerEl.setAttribute("data-theme", name);
+    playerEl.classList.toggle("has-scene", SCENE_THEMES.has(name));
+    const sceneEl = $("scene");
+    const scenes = window.FV_SCENES || {};
+    const scene = SCENE_THEMES.has(name) ? scenes[name] : null;
+    sceneEl.innerHTML = scene ? scene.html : "";
+    sceneAspect = scene && scene.aspect ? scene.aspect : 16 / 9;
+    const sel = $("theme-select");
+    if (sel && sel.value !== name) sel.value = name;
+    fitSceneFrame();
+    readArmGeometry();
+    // When the arm's home moves between themes, snap it there instead of
+    // swinging across the screen from the old pivot.
+    armDeg = state.playing ? armAngleFor(armTargetProgress()) : GEO.restDeg; armVel = 0;
+    // The record is redrawn in case a theme changes how it should look.
+    renderVinyl(PRESETS[state.presetIndex], palette, state.trackId || "boot");
   }
 
   async function route() {
     if (forceSetup || !clientId()) return show("setup");
     if (!store.get(LS.tokens)) return show("login");
+    if (!tokensCoverScopes()) {
+      // This build reads the library, which an older sign-in never asked for.
+      store.del(LS.tokens);
+      toast("This version can browse your library, so Spotify needs to approve it once more.", 7000);
+      return show("login");
+    }
     show("player");
+    applyTheme(state.theme);
     renderVinyl(PRESETS[state.presetIndex], palette, "boot");
     renderMeta();
     poll();
@@ -706,6 +1071,7 @@
 
   async function boot() {
     wireUi();
+    applyMode(state.mode); // the sign-in screens follow the appearance too
     requestAnimationFrame(frame);
     const q = new URLSearchParams(location.search);
     if (q.get("error")) { toast("Spotify login was cancelled: " + q.get("error")); history.replaceState({}, "", redirectUri()); }
@@ -717,12 +1083,33 @@
     route();
   }
 
+  /** Start an album or playlist from its first track, on whatever device is active. */
+  async function playContext(uri) {
+    try {
+      if (!(await ensureDevice())) return toast("No Spotify device is active. Open Spotify somewhere, or allow this tab to play (Premium).");
+      const q = state.deviceIsLocal && sdkDeviceId ? "?device_id=" + sdkDeviceId : "";
+      await api("/me/player/play" + q, { method: "PUT", body: JSON.stringify({ context_uri: uri, position_ms: 0 }) });
+      setPosition(0, true); renderMeta();
+      setTimeout(poll, 500); setTimeout(poll, 1800);
+    } catch (e) {
+      if (e.reason === "NO_ACTIVE_DEVICE") toast("Start Spotify on a device first, then pick a record.");
+      else if (e.reason === "PREMIUM_REQUIRED" || e.status === 403) toast("Spotify only allows starting playback with Premium.");
+      else toast(e.message);
+    }
+  }
+
+  // Shared with library.js and any future module
+  window.FV = { api, state, toast, poll, playContext, applyTheme, THEMES, ensureDevice, renderMeta, setVolume };
+
   // Expose a tiny hook for local previews / screenshots (no Spotify needed)
   window.__foraVinylPreview = (track, opts = {}) => {
     show("player");
     if (opts.preset != null) state.presetIndex = Math.max(0, PRESETS.indexOf(opts.preset));
     state.hasDevice = true; state.deviceName = opts.deviceName || "Preview"; state.deviceIsLocal = true;
     state.trackId = null; lastTrackId = track.id; // keep the forced preset
+    if (opts.theme) applyTheme(opts.theme);
+    if (opts.mode) applyMode(opts.mode);
+    if (opts.volume != null) { state.volume = opts.volume; state.volumeSupported = opts.volumeSupported !== false; renderVolume(); }
     applyTrack(track); // triggers onTrackChanged -> art + vinyl render
     setPosition(opts.positionMs || 0, !!opts.playing);
     renderMeta();
